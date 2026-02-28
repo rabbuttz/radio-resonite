@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { findNearestStation } from "./radio-api.js";
+import { findNearestStation, initStationCache } from "./radio-api.js";
 import type { ClientMessage, ServerMessage } from "./types.js";
 
 const PORT = Number(process.env.PORT) || 3210;
@@ -11,6 +11,8 @@ interface ClientState {
 }
 
 const clients = new Map<WebSocket, ClientState>();
+
+await initStationCache();
 
 const wss = new WebSocketServer({ port: PORT });
 
@@ -36,9 +38,9 @@ wss.on("connection", (ws) => {
 
     if (state.debounceTimer) clearTimeout(state.debounceTimer);
 
-    state.debounceTimer = setTimeout(async () => {
+    state.debounceTimer = setTimeout(() => {
       try {
-        const station = await findNearestStation(msg.lat, msg.lon);
+        const station = findNearestStation(msg.lat, msg.lon);
         if (!station) {
           console.error("No station found");
           return;

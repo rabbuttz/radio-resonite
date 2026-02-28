@@ -1,6 +1,10 @@
 import type { RadioBrowserStation } from "./types.js";
 
+const CACHE_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+const FETCH_BATCH_SIZE = 10000;
+
 let cachedBaseUrl: string | null = null;
+let stationCache: RadioBrowserStation[] = [];
 
 async function getBaseUrl(): Promise<string> {
   if (cachedBaseUrl) return cachedBaseUrl;
@@ -19,42 +23,73 @@ async function getBaseUrl(): Promise<string> {
   return cachedBaseUrl;
 }
 
-export async function findNearestStation(
-  lat: number,
-  lon: number
-): Promise<RadioBrowserStation | null> {
+async function fetchAllStations(): Promise<RadioBrowserStation[]> {
   const base = await getBaseUrl();
-  // Fetch a larger batch because the API's geo_distance sort is unreliable
-  const params = new URLSearchParams({
-    geo_lat: lat.toString(),
-    geo_long: lon.toString(),
-    order: "geo_distance",
-    limit: "200",
-    has_geo_info: "true",
-    hidebroken: "true",
-  });
+  const stations: RadioBrowserStation[] = [];
+  let offset = 0;
 
-  const res = await fetch(`${base}/json/stations/search?${params}`, {
-    headers: { "User-Agent": "radio-resonite/1.0.0" },
-  });
+  while (true) {
+    const params = new URLSearchParams({
+      has_geo_info: "true",
+      hidebroken: "true",
+      limit: FETCH_BATCH_SIZE.toString(),
+      offset: offset.toString(),
+      order: "stationuuid",
+    });
 
-  if (!res.ok) {
-    console.error(`radio-browser API error: ${res.status} ${res.statusText}`);
-    return null;
+    const res = await fetch(`${base}/json/stations/search?${params}`, {
+      headers: { "User-Agent": "radio-resonite/1.0.0" },
+    });
+
+    if (!res.ok) {
+      console.error(`radio-browser API error: ${res.status} ${res.statusText}`);
+      break;
+    }
+
+    const batch: RadioBrowserStation[] = await res.json();
+    stations.push(...batch);
+
+    if (batch.length < FETCH_BATCH_SIZE) break;
+    offset += batch.length;
   }
 
-  const stations: RadioBrowserStation[] = await res.json();
+  return stations.filter((s) => s.geo_lat !== 0 || s.geo_long !== 0);
+}
 
-  // Filter out stations without valid coordinates, then sort by actual distance
-  const withDistance = stations
-    .filter((s) => s.geo_lat !== 0 || s.geo_long !== 0)
-    .map((s) => ({
-      station: s,
-      distance: haversineDistance(lat, lon, s.geo_lat, s.geo_long),
-    }))
-    .sort((a, b) => a.distance - b.distance);
+export async function initStationCache(): Promise<void> {
+  console.log("Fetching all radio stations...");
+  stationCache = await fetchAllStations();
+  console.log(`Station cache loaded: ${stationCache.length} stations`);
 
-  return withDistance[0]?.station ?? null;
+  setInterval(async () => {
+    console.log("Refreshing station cache...");
+    try {
+      stationCache = await fetchAllStations();
+      console.log(`Station cache refreshed: ${stationCache.length} stations`);
+    } catch (err) {
+      console.error("Failed to refresh station cache:", err);
+    }
+  }, CACHE_REFRESH_INTERVAL_MS).unref();
+}
+
+export function findNearestStation(
+  lat: number,
+  lon: number
+): RadioBrowserStation | null {
+  if (stationCache.length === 0) return null;
+
+  let nearest: RadioBrowserStation | null = null;
+  let minDistance = Infinity;
+
+  for (const station of stationCache) {
+    const d = haversineDistance(lat, lon, station.geo_lat, station.geo_long);
+    if (d < minDistance) {
+      minDistance = d;
+      nearest = station;
+    }
+  }
+
+  return nearest;
 }
 
 export function haversineDistance(
