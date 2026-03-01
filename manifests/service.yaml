@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: radio-resonite
+  labels:
+    app: radio-resonite
+spec:
+  type: LoadBalancer
+  selector:
+    app: radio-resonite
+  ports:
+    - name: ws
+      port: 3210
+      targetPort: 3210
+      protocol: TCP

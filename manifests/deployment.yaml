@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radio-resonite
+  labels:
+    app: radio-resonite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: radio-resonite
+  template:
+    metadata:
+      labels:
+        app: radio-resonite
+    spec:
+      containers:
+        - name: radio-resonite
+          image: ghcr.io/rabbuttz/radio-resonite:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3210
+              name: ws
+          env:
+            - name: PORT
+              value: "3210"
+          readinessProbe:
+            tcpSocket:
+              port: 3210
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3210
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
